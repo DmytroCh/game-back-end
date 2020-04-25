@@ -24,6 +24,7 @@ const addGame = (playerId, roomName) => {
         roomName: roomName, //random string based on guid standard.
         players: [player.createPlayer(playerId, startPosition.FIRST, place.NOT_FINISHED)], // max 4 players
         powns: [...pown.generatePownsSet(playerId, startPosition.FIRST)], // powns from all players -> 16 items
+        board: Array(80).fill(null).map(() => []), // this is board which will contains powns ids basedon their position.
         createdOn: new Date().getTime(), //This is time, when first user was joined. After e.g. 1 min from this time game starts.
         isStarted: false, // this flag shows if game is started. Should be set on true when 4 players found or accrosed maxWaitingTime
         isFinished: false ,// this flag shows if players still play (or all finished).
@@ -111,7 +112,7 @@ const getGameNameByPlayerId = (playerId) => {
 // Problem is we don't want ask users wait untill all places will be taken
 // Idea is wait maxWaitingTime from first user join the game and starts it absolutely
 const startGamesPeriodically = () => {
-    console.log("games-runner validator runned");
+    //console.log("games-runner validator runned");
     const gameToRun = [];
     games.forEach(game => {
         const nowMs = new Date().getTime();
@@ -141,7 +142,7 @@ const findNextPlayer = (playerId, game) => {
 } 
 
 // get new dice based on game rules
-const getNewDice = (playerDice, playerId, game) => {
+/*const getNewDice = (playerDice, playerId, game) => {
     //check if rolled previosly
     if(playerDice.turn === 0){
         return dice.rollDice(playerDice);
@@ -151,33 +152,87 @@ const getNewDice = (playerDice, playerId, game) => {
         const nextPlayerId = findNextPlayer(playerId, game);
         return dice.getCleanDice(nextPlayerId);
     }
+};*/
+
+// This method check if moved pown will run out the home or try to stay on busy home`s cell
+const checkHome = (game, pown1) => {
+    const pownOwnerId = pown1.ownerId;
+    const diceValue = game.dice.value;
+    const boardShift = pown.getBoardShift(); //distance between two starts
+    const startPosition = game.players.find(player => player.id === pownOwnerId).startPosition; // this is payer position in the queue
+    const boardSize = 39;
+    const homeSize = 4;
+    const newPosition = pown1.position + diceValue;
+    //check if move will cause move out of home
+    const maxHomePosition = startPosition * boardShift + boardSize + homeSize;
+    if(newPosition > maxHomePosition){
+        console.log("Pown run out the home");
+        return false;
+    }
+    //check if move will cause stands on busy home cell
+    if(game.board[newPosition].length > 0)
+        return false;
+    return true;
 };
 
-const movePown = () => {
-    
-}
+// This method responsible for pown move
+// we can't change values in method parameters as JS send it via value, so out of this method changes will not be vissible
+const movePown = (game, pownId) => {
+    const gameId = game.roomName;
+    const activeGame = games.find(g => g.roomName === gameId);
+    const activePown = activeGame.powns.find(p => p.id === pownId);
+    // Is pown stays at start area
+    if(activePown.isStartArea){
+        console.log("Pown is out start area!");
+        activePown.isStartArea = false;
+    }else{
+        const pownIndex = activeGame.board.findIndex(p => p.id === activePown.id);
+        activeGame.board[activePown.position].splice(pownIndex, 1);
+        activePown.position = activePown.position + activeGame.dice.value;
+    }
+    //place pown on board
+    activeGame.board[activePown.position].push(activePown.id);
+};
 
 
 // This method return true or false depends on if move was done by user is proper in case of rules
-// If move is proper - board should be updated
-const proceedMove = (game, playerId, pownId) => {
+const validateMove = (game, playerId, pownId) => {
     const dice = game.dice;
-    // check if proper user did move
+    // check if proper user did movestartPosition
     if(dice.playerId === playerId){
+        console.log("PlayerId is ok!");
         const diceValue = dice.value;
-        const pown = game.powns.find(pown => pown.ownerId === playerId && pown.pownId === pownId);
-        if(pownId){
+        const pown = game.powns.find(pown => pown.ownerId === playerId && pown.id === pownId);
+        if(pown){
+            console.log("Pown found!");
             //check if pown stays at start and dice value != 6
-            if(pown.isStartArea && diceValue !== 6)
+            if(pown.isStartArea && diceValue !== 6){
+                console.log("Pown can't move out!");
                 return false;
+            }
             //here should be check if pown are not jump out of home if do, return false
-            //if not, we need do this move in bellow method  
-            movePown(game, pown);         
-
+            const isHomeProper = checkHome(game, pown); 
+            if(!isHomeProper){
+                console.log("Home validation fails");
+                return false;
+            }       
         }
     }else{
         return false;
     }
+    return true;
+};
+
+// This method check if given player has possible moves
+const validateAllPossibleMoves = (game, playerId) => {
+    let isPossibleMove = false;
+    const powns = game.powns.filter(pown => pown.ownerId === playerId);
+    // go through all player`s powns
+    for(let i = 0; i < pown.getSetSize; i++){
+        if(!isPossibleMove)
+            isPossibleMove = validateMove(game, playerId, powns[i].id);
+    } 
+    return isPossibleMove;
 };
 
 // This method responsible for move validation and execution
@@ -188,8 +243,29 @@ const doMove = (playerSocket, pownId) => {
     });
         // if found
         if(game){
-            const moveIsValid = proceedMove(game, playerId, pownId);
-            const newDice = getNewDice(game.dice, playerId, game);
+            console.log("Game gound");
+            const moveIsValid = validateMove(game, playerId, pownId);
+            //if move is not valid we need to check if this user has any possible move, otherwise next player should play
+            if(!moveIsValid){
+                console.log("Move is invalid!");
+                const isThereAnyPossibleMoves = validateAllPossibleMoves(game, playerId);
+                if(isThereAnyPossibleMoves){                    
+                    return false;
+                }else{
+                    const nextPlayerId = findNextPlayer(playerId, game);
+                    const newDice = dice.getCleanDice(nextPlayerId);
+                    game.dice = newDice;
+                }
+            }else{
+                console.log("Move is valid!");
+                //const newDice = getNewDice(game.dice, playerId, game);
+                //We need do this move in bellow method  
+                movePown(game, pownId);   
+                const nextPlayerId = findNextPlayer(playerId, game);
+                const newDice = dice.getCleanDice(nextPlayerId);
+                game.dice = newDice;
+                console.log(game.board);
+            }  
         }else{
             throw new Error(`Player ${playerId} was not found in any games. Verify games array`);
         }

@@ -19,7 +19,7 @@ const createPown = (ownerId, position) => {
 };
 
 const generatePownsSet = (ownerId, startPosition) => {
-    const powns = [];
+    const powns = [];StartField = startPosition * boardShift;
     const pownStartField = startPosition * boardShift;
     for(let i = 0; i < setSize; i++){
         powns.push(createPown(ownerId, pownStartField));
@@ -27,6 +27,16 @@ const generatePownsSet = (ownerId, startPosition) => {
     return powns;
 };
 
+const getSetSize = () =>{
+    return setSize;
+};
+
+const getBoardShift = () =>{
+    return boardShift;
+};
+
 module.exports = {
-    generatePownsSet: generatePownsSet
+    generatePownsSet: generatePownsSet,
+    getSetSize: getSetSize,
+    getBoardShift: getBoardShift
 };
