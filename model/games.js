@@ -1,6 +1,9 @@
 const place = require('./enum/finish-place-enum');
 const startPosition = require('./enum/start-position-enum');
 const maxWaitingTime = 60000; // 1 min in ms. This is how long room is waiting for all players. After this delay game starts even not full
+const player = require('./player');
+const pown = require('./pown');
+const dice = require('./dice');
 const games = [];
 
 // Get all games
@@ -19,20 +22,12 @@ const getGame = (roomName) => {
 const addGame = (playerId, roomName) => {
     games.push({
         roomName: roomName, //random string based on guid standard.
-        players: [{
-            id: playerId, // same as scocket id
-            startPosition: startPosition.FIRST,
-            place: place.NOT_FINISHED
-        }],
-        pins: [{
-            ownerId: 'dfgdsf',
-            id: 1,
-            position: 0,
-            isHome: true //means it stay at start home, only 6 cube can move it out
-        }],
+        players: [player.createPlayer(playerId, startPosition.FIRST, place.NOT_FINISHED)], // max 4 players
+        powns: [...pown.generatePownsSet(playerId, startPosition.FIRST)], // powns from all players -> 16 items
         createdOn: new Date().getTime(), //This is time, when first user was joined. After e.g. 1 min from this time game starts.
         isStarted: false, // this flag shows if game is started. Should be set on true when 4 players found or accrosed maxWaitingTime
-        isFinished: false // this flag shows if players still play (or all finished). 
+        isFinished: false ,// this flag shows if players still play (or all finished).
+        dice: dice.getCleanDice(playerId)
     });
 };
 
@@ -54,11 +49,9 @@ const startGame = game => {
 
 // This method add new player to the game
 const addPlayerToGame = (game, playerId) => {
-    game.players.push({
-        id: playerId,
-        startPosition: findStartPosition(game),
-        place: place.NOT_FINISHED
-    });
+    const startPosition = findStartPosition(game);
+    game.players.push(player.createPlayer(playerId, startPosition, place.NOT_FINISHED));
+    game.powns = game.powns.concat(pown.generatePownsSet(playerId, startPosition));
     if(game.players.length === 4)
         startGame(game);
 };
@@ -102,6 +95,18 @@ const removePlayerFromGame = (playerId) => {
     return game.roomName;
 };
 
+const getGameNameByPlayerId = (playerId) => {
+    const game = games.find(game => {
+        return game.players.some(player => player.id === playerId);
+    });
+    // if found
+    if(game){
+        return game.roomName;
+    }else{
+        throw new Error(`Player ${playerId} was not found in any games. Verify games array`);
+    }
+};
+
 // This method required for timers
 // Problem is we don't want ask users wait untill all places will be taken
 // Idea is wait maxWaitingTime from first user join the game and starts it absolutely
@@ -121,11 +126,83 @@ const startGamesPeriodically = () => {
     return gameToRun;
 };
 
+// This method search who should throw next
+const findNextPlayer = (playerId, game) => {
+    const rollOrder = game.players.sort((a, b) => a - b); //sort players by start position
+    const i = rollOrder.findIndex(player => player.id === playerId);
+    if(i < rollOrder.length - 1){
+        return rollOrder[i + 1].id;
+    }else if(i === rollOrder.length - 1){
+        return rollOrder[0].id;
+    }else{
+        throw new Error('There is problem with ordering in findNextPlayer()');
+    }
+    //console.log(rollOrder);
+} 
+
+// get new dice based on game rules
+const getNewDice = (playerDice, playerId, game) => {
+    //check if rolled previosly
+    if(playerDice.turn === 0){
+        return dice.rollDice(playerDice);
+    }else if(playerDice.value === 6 && player.turn < 3){ //max number of 6 values is 2 otherwise next player should play
+        return dice.rollDice(playerDice);
+    }else{
+        const nextPlayerId = findNextPlayer(playerId, game);
+        return dice.getCleanDice(nextPlayerId);
+    }
+};
+
+const movePown = () => {
+    
+}
+
+
+// This method return true or false depends on if move was done by user is proper in case of rules
+// If move is proper - board should be updated
+const proceedMove = (game, playerId, pownId) => {
+    const dice = game.dice;
+    // check if proper user did move
+    if(dice.playerId === playerId){
+        const diceValue = dice.value;
+        const pown = game.powns.find(pown => pown.ownerId === playerId && pown.pownId === pownId);
+        if(pownId){
+            //check if pown stays at start and dice value != 6
+            if(pown.isStartArea && diceValue !== 6)
+                return false;
+            //here should be check if pown are not jump out of home if do, return false
+            //if not, we need do this move in bellow method  
+            movePown(game, pown);         
+
+        }
+    }else{
+        return false;
+    }
+};
+
+// This method responsible for move validation and execution
+const doMove = (playerSocket, pownId) => {
+    const playerId = playerSocket.id;
+    const game = games.find(game => {
+        return game.players.some(player => player.id === playerId);
+    });
+        // if found
+        if(game){
+            const moveIsValid = proceedMove(game, playerId, pownId);
+            const newDice = getNewDice(game.dice, playerId, game);
+        }else{
+            throw new Error(`Player ${playerId} was not found in any games. Verify games array`);
+        }
+        return true;
+};
+
 module.exports = {
     getGames: getGames,
     getGame: getGame,
+    getGameNameByPlayerId: getGameNameByPlayerId,
     addGame: addGame,
     addPlayerToGame: addPlayerToGame,
     removePlayerFromGame: removePlayerFromGame,
-    startGamesPeriodically: startGamesPeriodically
+    startGamesPeriodically: startGamesPeriodically,
+    doMove: doMove
 };

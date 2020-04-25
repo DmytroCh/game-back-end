@@ -23,6 +23,20 @@ const handleDisconnectedUser = (socket) => {
 
 };
 
+// Handle new player move event
+const handleNewMove = (socket, pownId) => {
+    try{
+        games.doMove(socket, pownId);
+    }catch(error){
+        console.error(error);
+    }finally{
+        const roomName = games.getGameNameByPlayerId(socket.id);
+        // inform other players from same game about board changes. If move was illegal - same positions will be returned
+        if(roomName)
+            io.to(roomName).emit('board-changes', games.getGame(roomName));
+    }
+};
+
 // Handel games auto runs
 const handleAutoStartGame = () => {
     const gamesToRun = games.startGamesPeriodically();
@@ -36,5 +50,6 @@ setInterval(handleAutoStartGame, 5000, 'games-runner');
 
 module.exports = {
     handleNewPlayer: (socket) => handleNewPlayer(socket),
-    handleDisconnectedUser: (socket) => handleDisconnectedUser(socket)
+    handleDisconnectedUser: (socket) => handleDisconnectedUser(socket),
+    handleNewMove: (socket, pownId) => handleNewMove(socket, pownId)
 };
