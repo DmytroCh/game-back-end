@@ -81,6 +81,7 @@ const removePlayerFromGame = (playerId) => {
     if(game){
         const playerIndex = game.players.findIndex(player => player.id === playerId);
         game.players.splice(playerIndex, 1);
+        game.powns = game.powns.filter((pown) => pown.ownerId !== playerId);
         // last user win
         if(game.players.length == 1){
             proceedOnePlayerGameWin(game);
@@ -179,8 +180,13 @@ const checkHome = (game, pown1) => {
 // we can't change values in method parameters as JS send it via value, so out of this method changes will not be vissible
 const movePown = (game, pownId) => {
     const gameId = game.roomName;
+    console.log("Game id", gameId);
     const activeGame = games.find(g => g.roomName === gameId);
+    console.log("activeGame", activeGame);
     const activePown = activeGame.powns.find(p => p.id === pownId);
+    console.log("activePown", activePown);
+
+
     // Is pown stays at start area
     if(activePown.isStartArea){
         console.log("Pown is out start area!");
