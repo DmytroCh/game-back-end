@@ -79,8 +79,25 @@ const removePlayerFromGame = (playerId) => {
     });
     // if found
     if(game){
+        // If turn was player who leaved
+        if(game.dice.playerId === playerId){
+            const nextPlayerId = findNextPlayer(playerId, game);
+            const newDice = dice.getCleanDice(nextPlayerId);
+            game.dice = newDice;
+        }
         const playerIndex = game.players.findIndex(player => player.id === playerId);
         game.players.splice(playerIndex, 1);
+        //remove player's powns
+        const playersPowns = game.powns.filter((pown) => pown.ownerId === playerId).map(pown => pown.id);
+        game.board.forEach(cell => {
+            playersPowns.forEach(pownId => {
+                let index = cell.indexOf(pownId);
+                if(index >= 0)
+                    cell.splice(index, 1);
+            });
+
+        });
+
         game.powns = game.powns.filter((pown) => pown.ownerId !== playerId);
         // last user win
         if(game.players.length == 1){
@@ -180,12 +197,8 @@ const checkHome = (game, pown1) => {
 // we can't change values in method parameters as JS send it via value, so out of this method changes will not be vissible
 const movePown = (game, pownId) => {
     const gameId = game.roomName;
-    console.log("Game id", gameId);
     const activeGame = games.find(g => g.roomName === gameId);
-    console.log("activeGame", activeGame);
     const activePown = activeGame.powns.find(p => p.id === pownId);
-    console.log("activePown", activePown);
-
 
     // Is pown stays at start area
     if(activePown.isStartArea){
@@ -194,7 +207,11 @@ const movePown = (game, pownId) => {
     }else{
         const pownIndex = activeGame.board.findIndex(p => p.id === activePown.id);
         activeGame.board[activePown.position].splice(pownIndex, 1);
-        activePown.position = activePown.position + activeGame.dice.value;
+        // lock lap, otherwise red pown will go to green home as it start from position 30
+        if(activePown.position + activeGame.dice.value >= 40)
+            activePown.position = (activePown.position + activeGame.dice.value) % 40;
+        else
+            activePown.position = activePown.position + activeGame.dice.value;
     }
     //place pown on board
     activeGame.board[activePown.position].push(activePown.id);
@@ -213,15 +230,17 @@ const validateMove = (game, playerId, pownId) => {
             console.log("Pown found!");
             //check if pown stays at start and dice value != 6
             if(pown.isStartArea && diceValue !== 6){
-                console.log("Pown can't move out!");
+                console.error("Pown can't move out!");
                 return false;
             }
             //here should be check if pown are not jump out of home if do, return false
             const isHomeProper = checkHome(game, pown); 
             if(!isHomeProper){
-                console.log("Home validation fails");
+                console.error("Home validation fails");
                 return false;
             }       
+        }else{
+            return false;
         }
     }else{
         return false;
@@ -230,14 +249,18 @@ const validateMove = (game, playerId, pownId) => {
 };
 
 // This method check if given player has possible moves
-const validateAllPossibleMoves = (game, playerId) => {
+const validateAllPossibleMoves = (game, playerId, pownId) => {
     let isPossibleMove = false;
     const powns = game.powns.filter(pown => pown.ownerId === playerId);
-    // go through all player`s powns
-    for(let i = 0; i < pown.getSetSize; i++){
-        if(!isPossibleMove)
-            isPossibleMove = validateMove(game, playerId, powns[i].id);
-    } 
+    if(pownId){
+        // go through all player`s powns
+        for(let i = 0; i < pown.getSetSize(); i++){
+            if(!isPossibleMove)
+                isPossibleMove = validateMove(game, playerId, powns[i].id);
+        }
+    }else{
+        isPossibleMove = true;
+    }
     return isPossibleMove;
 };
 
@@ -249,12 +272,13 @@ const doMove = (playerSocket, pownId) => {
     });
         // if found
         if(game){
-            console.log("Game gound");
+            console.log("Game found");
             const moveIsValid = validateMove(game, playerId, pownId);
             //if move is not valid we need to check if this user has any possible move, otherwise next player should play
             if(!moveIsValid){
-                console.log("Move is invalid!");
-                const isThereAnyPossibleMoves = validateAllPossibleMoves(game, playerId);
+                console.error("Move is invalid!");
+                const isThereAnyPossibleMoves = validateAllPossibleMoves(game, playerId, pownId);
+                //console.log("isThereAnyPossibleMoves", isThereAnyPossibleMoves);
                 if(isThereAnyPossibleMoves){                    
                     return false;
                 }else{
@@ -270,12 +294,22 @@ const doMove = (playerSocket, pownId) => {
                 const nextPlayerId = findNextPlayer(playerId, game);
                 const newDice = dice.getCleanDice(nextPlayerId);
                 game.dice = newDice;
-                console.log(game.board);
+                //console.log(game.board);
             }  
         }else{
             throw new Error(`Player ${playerId} was not found in any games. Verify games array`);
         }
         return true;
+};
+
+//if there are no moves for player then turn should go to next one
+const shouldNextPlayerBe = (game) => {
+        const isAvailableMove = validateAllPossibleMoves(game, game.dice.playerId, "pownId");
+        if(!isAvailableMove){
+            const playerPown = game.powns.find(pown => pown.ownerId === game.dice.playerId);
+            return playerPown;
+        }
+        return null;
 };
 
 module.exports = {
@@ -286,5 +320,7 @@ module.exports = {
     addPlayerToGame: addPlayerToGame,
     removePlayerFromGame: removePlayerFromGame,
     startGamesPeriodically: startGamesPeriodically,
-    doMove: doMove
+    doMove: doMove,
+    validateAllPossibleMoves: validateAllPossibleMoves,
+    shouldNextPlayerBe: shouldNextPlayerBe
 };

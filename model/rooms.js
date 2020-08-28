@@ -34,14 +34,14 @@ const addPlayerToRoom = socket => {
     const roomName = findRoom();
     socket.join(roomName);
     addPlayerToGame(socket, roomName);
-    console.log(games.getGames());
+    //console.log(games.getGames());
     return roomName;
 };
 
 // This method removes user from game
 const removePlayerFromRoom = socket => {
     const roomName = games.removePlayerFromGame(socket.id);
-    console.log(games.getGames());
+    //console.log(games.getGames());
     return roomName;
 }
 
