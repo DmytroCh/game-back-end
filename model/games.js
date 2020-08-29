@@ -181,15 +181,19 @@ const checkHome = (game, pown1) => {
     const boardSize = 39;
     const homeSize = 4;
     const newPosition = pown1.position + diceValue;
-    //check if move will cause move out of home
     const maxHomePosition = startPosition * boardShift + boardSize + homeSize;
-    if(newPosition > maxHomePosition){
+    const parkedPownsNumber = game.powns.filter(pown => pown.ownerId === pownOwnerId).filter(pown => pown.isHome === true);
+
+    //check if move will cause move out of home
+    if(newPosition > maxHomePosition - parkedPownsNumber){
         console.log("Pown run out the home");
         return false;
     }
-    //check if move will cause stands on busy home cell
-    if(game.board[newPosition].length > 0)
+
+    //check if pown not at home already
+    if(pown1.isHome)
         return false;
+
     return true;
 };
 
@@ -199,38 +203,91 @@ const movePown = (game, pownId) => {
     const gameId = game.roomName;
     const activeGame = games.find(g => g.roomName === gameId);
     const activePown = activeGame.powns.find(p => p.id === pownId);
-
+    console.log("Active pown", activePown);
     // Is pown stays at start area
     if(activePown.isStartArea){
-        console.log("Pown is out start area!");
+        console.log("Pown moved out start area");
         activePown.isStartArea = false;
     }else{
-        const pownIndex = activeGame.board.findIndex(p => p.id === activePown.id);
+        console.log("Searched pown id", pownId);
+        const pownIndex = activeGame.board[activePown.position].findIndex(p => p === activePown.id);
+        console.log("Pown index in Cell", pownIndex);
+        console.log(activeGame.board[activePown.position]);
         activeGame.board[activePown.position].splice(pownIndex, 1);
-        // lock lap, otherwise red pown will go to green home as it start from position 30
-        if(activePown.position + activeGame.dice.value >= 40)
-            activePown.position = (activePown.position + activeGame.dice.value) % 40;
-        else
-            activePown.position = activePown.position + activeGame.dice.value;
+        console.log(activeGame.board[activePown.position]);
+        const newPosition = activePown.position + activeGame.dice.value;
+        const player = activeGame.players.find(player => player.id === activePown.ownerId);
+        const startPosition = player.startPosition * 10;
+        
+        //if pown in home area alredy
+        if(activePown.position >= 40){
+            activePown.position = newPosition;
+            console.log("activePown.position >= 40", activePown.position);
+        }else{
+            //does pown did 40 steps and go to home area?
+            //const diff = 40 - startPosition + newPosition;
+            //console.log()
+            if(startPosition == 0){
+                activePown.position = newPosition;
+            }else{
+                if(activePown.position < startPosition &&
+                    newPosition >= startPosition){
+                    activePown.position = startPosition + 40;
+                    console.log("Diff <= 0", activePown.position);
+                }else{
+                    // lock lap, otherwise red pown will go to green home as it start from position 30
+                    if(newPosition >= 40){
+                        activePown.position = (newPosition) % 40;
+                        console.log("newPosition >= 40", activePown.position);
+                    }else{
+                        activePown.position = newPosition;
+                        console.log("activePown.position < 40", activePown.position);
+
+                    }
+                }
+            }
+        }
     }
     //place pown on board
     activeGame.board[activePown.position].push(activePown.id);
+    // park pown if it's time
+    //parkPown(game, pownId);
 };
 
+const parkPown = (game, pownId) => {
+    const pown = game.powns.find(pown => pown.id === pownId);
+    if(pown){
+        const player = game.players.find(player => player.id === pown.ownerId);
+        if(player){
+            const parkedPowns = game.powns.filter(pown => pown.ownerId === player.id && pown.isHome === true);
+            const homeEnd = 40 + player.startPosition * 10 - parkedPowns.length + 4;
+            console.log("Parked powns", parkedPowns);
+            console.log("homeEnd", homeEnd);
+            if(pown.position >= homeEnd){
+                pown.isHome = true;
+                console.log("Pown was parked", pownId);
+            }
+        }else{
+            console.error("Player not found", pown.ownerId);
+        }
+    }else{
+        console.error("Pown not found", pownId);
+    }
+};
 
 // This method return true or false depends on if move was done by user is proper in case of rules
 const validateMove = (game, playerId, pownId) => {
     const dice = game.dice;
     // check if proper user did movestartPosition
     if(dice.playerId === playerId){
-        console.log("PlayerId is ok!");
+        //console.log("PlayerId is ok!");
         const diceValue = dice.value;
         const pown = game.powns.find(pown => pown.ownerId === playerId && pown.id === pownId);
         if(pown){
-            console.log("Pown found!");
+            //console.log("Pown found!");
             //check if pown stays at start and dice value != 6
             if(pown.isStartArea && diceValue !== 6){
-                console.error("Pown can't move out!");
+                //console.error("Pown can't move out!", pown);
                 return false;
             }
             //here should be check if pown are not jump out of home if do, return false
@@ -272,6 +329,7 @@ const doMove = (playerSocket, pownId) => {
     });
         // if found
         if(game){
+            console.log("=======================New Move======================");
             console.log("Game found");
             const moveIsValid = validateMove(game, playerId, pownId);
             //if move is not valid we need to check if this user has any possible move, otherwise next player should play
