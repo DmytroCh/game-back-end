@@ -5,6 +5,7 @@ const player = require('./player');
 const pown = require('./pown');
 const dice = require('./dice');
 const games = [];
+const supportOptions = require('./support-options'); // must be removed later
 
 // Get all games
 const getGames = () => games;
@@ -20,7 +21,7 @@ const getGame = (roomName) => {
 
 // Create a new game
 const addGame = (playerId, roomName) => {
-    games.push({
+    const newGame = {
         roomName: roomName, //random string based on guid standard.
         players: [player.createPlayer(playerId, startPosition.FIRST, place.NOT_FINISHED)], // max 4 players
         powns: [...pown.generatePownsSet(playerId, startPosition.FIRST)], // powns from all players -> 16 items
@@ -29,7 +30,8 @@ const addGame = (playerId, roomName) => {
         isStarted: false, // this flag shows if game is started. Should be set on true when 4 players found or accrosed maxWaitingTime
         isFinished: false ,// this flag shows if players still play (or all finished).
         dice: dice.getCleanDice(playerId)
-    });
+    };
+    games.push(newGame);
 };
 
 // This method look to already exists players positions and return free slot id (enum value)
@@ -53,8 +55,11 @@ const addPlayerToGame = (game, playerId) => {
     const startPosition = findStartPosition(game);
     game.players.push(player.createPlayer(playerId, startPosition, place.NOT_FINISHED));
     game.powns = game.powns.concat(pown.generatePownsSet(playerId, startPosition));
-    if(game.players.length === 4)
+    if(game.players.length === 4){
+        game = supportOptions.createOptionalStartBoard(game);
         startGame(game);
+    }
+
 };
 
 // this method removes game by given name
@@ -177,16 +182,30 @@ const checkHome = (game, pown1) => {
     const pownOwnerId = pown1.ownerId;
     const diceValue = game.dice.value;
     const boardShift = pown.getBoardShift(); //distance between two starts
-    const startPosition = game.players.find(player => player.id === pownOwnerId).startPosition; // this is payer position in the queue
+    const startPosition = game.players.find(player => player.id === pownOwnerId).startPosition * boardShift;
     const boardSize = 39;
     const homeSize = 4;
-    const newPosition = pown1.position + diceValue;
-    const maxHomePosition = startPosition * boardShift + boardSize + homeSize;
-    const parkedPownsNumber = game.powns.filter(pown => pown.ownerId === pownOwnerId).filter(pown => pown.isHome === true);
+    const maxHomePosition = startPosition + boardSize + homeSize;
+    const parkedPownsNumber = game.powns.filter(pown => pown.ownerId === pownOwnerId).filter(pown => pown.isHome === true).length;
+    let newPosition = pown1.position + diceValue;
+
+    //case player 0
+    if(startPosition !== 0){
+        //if new position will cause go to home
+        if(pown1.position < startPosition &&
+            newPosition >= startPosition){
+            newPosition = startPosition + (boardSize + 1) + diceValue - (startPosition - pown1.position);
+            //console.log(`Start position ${startPosition}, new position ${newPosition}`);
+        }
+    }
 
     //check if move will cause move out of home
     if(newPosition > maxHomePosition - parkedPownsNumber){
         console.log("Pown run out the home");
+        return false;
+    }else if(!validateHomeNumbers(game.board, maxHomePosition, newPosition, homeSize, pown1.id)){
+        //check if at home not too mach powns. like two stay one step till the end.
+        console.log(`Too much powns at home.`);
         return false;
     }
 
@@ -197,8 +216,31 @@ const checkHome = (game, pown1) => {
     return true;
 };
 
+// this method check if there is no too much powns in specific home area like [0,0,3,0]
+const validateHomeNumbers = (board, maxHomePosition, newPosition, homeSize, pownId) => {
+    board = board.map(arr => {
+        return [...arr].filter(el => el !== pownId);
+    });
+    board[newPosition].push(pownId);
+    let result = true;
+    let maxValue = 1;
+    for(let i = maxHomePosition; i > maxHomePosition - homeSize; i--){
+        let sum = 0;
+        board
+        for(let j = maxHomePosition; j >= i; j--){
+            sum = sum + board[j].length;
+            //console.log(`i: ${i}, j: ${j}, sum: ${sum}`);
+        }
+        if(sum > maxValue){
+            result = false;
+        }else{
+            maxValue = maxValue + 1;
+        }
+    }
+    return result;
+};
+
 // This method responsible for pown move
-// we can't change values in method parameters as JS send it via value, so out of this method changes will not be vissible
 const movePown = (game, pownId) => {
     const gameId = game.roomName;
     const activeGame = games.find(g => g.roomName === gameId);
@@ -206,15 +248,10 @@ const movePown = (game, pownId) => {
     console.log("Active pown", activePown);
     // Is pown stays at start area
     if(activePown.isStartArea){
-        console.log("Pown moved out start area");
         activePown.isStartArea = false;
     }else{
-        console.log("Searched pown id", pownId);
         const pownIndex = activeGame.board[activePown.position].findIndex(p => p === activePown.id);
-        console.log("Pown index in Cell", pownIndex);
-        console.log(activeGame.board[activePown.position]);
         activeGame.board[activePown.position].splice(pownIndex, 1);
-        console.log(activeGame.board[activePown.position]);
         const newPosition = activePown.position + activeGame.dice.value;
         const player = activeGame.players.find(player => player.id === activePown.ownerId);
         const startPosition = player.startPosition * 10;
@@ -222,27 +259,23 @@ const movePown = (game, pownId) => {
         //if pown in home area alredy
         if(activePown.position >= 40){
             activePown.position = newPosition;
-            console.log("activePown.position >= 40", activePown.position);
         }else{
             //does pown did 40 steps and go to home area?
-            //const diff = 40 - startPosition + newPosition;
-            //console.log()
+            //player 0 case
             if(startPosition == 0){
                 activePown.position = newPosition;
             }else{
+                // 1-3 players case
                 if(activePown.position < startPosition &&
                     newPosition >= startPosition){
-                    activePown.position = startPosition + 40;
-                    console.log("Diff <= 0", activePown.position);
+                    const stepsAtHome = newPosition - startPosition;
+                    activePown.position = startPosition + 40 + stepsAtHome;
                 }else{
                     // lock lap, otherwise red pown will go to green home as it start from position 30
                     if(newPosition >= 40){
                         activePown.position = (newPosition) % 40;
-                        console.log("newPosition >= 40", activePown.position);
                     }else{
                         activePown.position = newPosition;
-                        console.log("activePown.position < 40", activePown.position);
-
                     }
                 }
             }
@@ -251,27 +284,73 @@ const movePown = (game, pownId) => {
     //place pown on board
     activeGame.board[activePown.position].push(activePown.id);
     // park pown if it's time
-    //parkPown(game, pownId);
+    parkPown(activeGame, pownId);
 };
 
 const parkPown = (game, pownId) => {
-    const pown = game.powns.find(pown => pown.id === pownId);
-    if(pown){
-        const player = game.players.find(player => player.id === pown.ownerId);
+    const index = game.powns.findIndex(pown => pown.id === pownId);
+    console.log("+++++++++++++++++++parkPown method++++++++++++++++++++++++");
+    console.log(index);
+    if(index >= 0){
+        const player = game.players.find(player => player.id === game.powns[index].ownerId);
         if(player){
             const parkedPowns = game.powns.filter(pown => pown.ownerId === player.id && pown.isHome === true);
-            const homeEnd = 40 + player.startPosition * 10 - parkedPowns.length + 4;
+            const homeEnd = 39 + player.startPosition * pown.getBoardShift() - parkedPowns.length + 4;
             console.log("Parked powns", parkedPowns);
             console.log("homeEnd", homeEnd);
-            if(pown.position >= homeEnd){
-                pown.isHome = true;
+            if(game.powns[index].position >= homeEnd){
+                game.powns[index].isHome = true;
                 console.log("Pown was parked", pownId);
+                normalizeHomeStatuses(game, player);
+                playerFinishedGame(game, player);
             }
         }else{
-            console.error("Player not found", pown.ownerId);
+            console.error("Player not found", game.powns[index].ownerId);
         }
     }else{
         console.error("Pown not found", pownId);
+    }
+};
+
+// this method set player's result if all powns parked
+const playerFinishedGame = (game, player) => {
+    const parkedPowns = game.powns.filter(pown => {
+        return pown.ownerId === player.id && pown.isHome === true;
+    });
+    if(parkedPowns.length >= 4){
+        const index = game.players.findIndex(pl => pl.id === player.id);
+        const alreadyFinished = game.players.filter(pl => pl.place > 0);
+        switch(alreadyFinished.length){
+            case 0:
+                game.players[index].place = place.FIRST;
+                break;
+            case 1:
+                game.players[index].place = place.SECOND;
+                break;
+            case 2:
+                game.players[index].place = place.THIRD;
+                break;
+            case 3:
+                game.players[index].place = place.FOURTH;
+                break;
+        }
+    }
+};
+
+//this method validate and update if all powns has proper isHome field
+//it's neccesary in case of [0,0,2,0]=>[0,0,1,1];
+const normalizeHomeStatuses = (game, player) => {
+    let playerPowns = game.powns.filter(pown => pown.ownerId === player.id);
+    playerPowns = playerPowns.sort((pown1, pown2) => pown1.position - pown2.position).reverse();
+    //console.log("playerPowns", playerPowns);
+    let isSorted = true;
+    for(let i = 0; i < playerPowns.length - 1; i++){
+        if(isSorted && playerPowns[i].position - playerPowns[i + 1].position <= 1){
+            const index = game.powns.findIndex(pown => pown.id === playerPowns[i + 1].id);
+            game.powns[index].isHome = true;
+        }else{
+            isSorted = false;
+        }
     }
 };
 
@@ -352,12 +431,19 @@ const doMove = (playerSocket, pownId) => {
                 const nextPlayerId = findNextPlayer(playerId, game);
                 const newDice = dice.getCleanDice(nextPlayerId);
                 game.dice = newDice;
-                //console.log(game.board);
+                checkGameFinished(game);
             }  
         }else{
             throw new Error(`Player ${playerId} was not found in any games. Verify games array`);
         }
         return true;
+};
+
+const checkGameFinished = (game) => {
+    const finishedPlayers = game.players.filter(player => player.place > 0);
+    if(finishedPlayers.length >= game.players.length)
+        game.isFinished = true;
+
 };
 
 //if there are no moves for player then turn should go to next one

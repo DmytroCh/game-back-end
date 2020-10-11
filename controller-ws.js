@@ -50,9 +50,9 @@ const handleNewMove = (socket, pownId) => {
         if(roomName){
             const game = games.getGame(roomName);    
             io.to(roomName).emit('board-changes', game);
-            //if there are now moves for player then turn should go to next one
+            //if there are no moves for player then turn should go to next one
             let isAvailableMove = games.validateAllPossibleMoves(game, game.dice.playerId, "pownId");
-            while(!isAvailableMove){
+            while(!isAvailableMove && !game.isFinished){
                 const playerPown = game.powns.find(pown => pown.ownerId === game.dice.playerId);
                 handleNewMove({id: game.dice.playerId}, playerPown.id);
                 isAvailableMove = games.validateAllPossibleMoves(game, game.dice.playerId, "pownId");
