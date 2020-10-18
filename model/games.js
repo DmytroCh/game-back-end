@@ -56,7 +56,7 @@ const addPlayerToGame = (game, playerId) => {
     game.players.push(player.createPlayer(playerId, startPosition, place.NOT_FINISHED));
     game.powns = game.powns.concat(pown.generatePownsSet(playerId, startPosition));
     if(game.players.length === 4){
-        game = supportOptions.createOptionalStartBoard(game);
+        //game = supportOptions.createOptionalStartBoard(game);
         startGame(game);
     }
 
@@ -243,8 +243,12 @@ const validateHomeNumbers = (board, maxHomePosition, newPosition, homeSize, pown
 // This method responsible for pown move
 const movePown = (game, pownId) => {
     const gameId = game.roomName;
-    const activeGame = games.find(g => g.roomName === gameId);
+    const activeGame = games.find(g => g.roomName === gameId); // I think we need to replace it by game from parameters to optimize
     const activePown = activeGame.powns.find(p => p.id === pownId);
+    const player = activeGame.players.find(player => player.id === activePown.ownerId);
+    const startPosition = player.startPosition * 10;
+    let newPosition = startPosition;
+
     console.log("Active pown", activePown);
     // Is pown stays at start area
     if(activePown.isStartArea){
@@ -252,9 +256,7 @@ const movePown = (game, pownId) => {
     }else{
         const pownIndex = activeGame.board[activePown.position].findIndex(p => p === activePown.id);
         activeGame.board[activePown.position].splice(pownIndex, 1);
-        const newPosition = activePown.position + activeGame.dice.value;
-        const player = activeGame.players.find(player => player.id === activePown.ownerId);
-        const startPosition = player.startPosition * 10;
+        newPosition = activePown.position + activeGame.dice.value;
         
         //if pown in home area alredy
         if(activePown.position >= 40){
@@ -283,10 +285,42 @@ const movePown = (game, pownId) => {
     }
     //place pown on board
     activeGame.board[activePown.position].push(activePown.id);
+    //if there is enemy pown on new position, we need to kick it to home
+    removeEnemysPown(activeGame, player, activePown.position);
     // park pown if it's time
     parkPown(activeGame, pownId);
 };
 
+// this method kick out enemies powns if there <= then incoming pown
+const removeEnemysPown = (game, player, newPosition) => {
+    const pownsInCell = [...game.board[newPosition]];
+    const playersPowns = game.powns.filter(pown => {
+        return pownsInCell.includes(pown.id) && pown.ownerId === player.id;
+    });
+    const potentialToRemove = game.powns.filter(pown => {
+        return pownsInCell.includes(pown.id) && pown.ownerId !== player.id;
+    });
+    const owners = [...new Set(potentialToRemove.map(pown => pown.ownerId))];
+    for(let i = 0; i < owners.length; i++){
+        const ownerPowns = potentialToRemove.filter(pown => pown.ownerId === owners[i]);
+        const ownerStartPosition = game.players.find(pl => pl.id === owners[i]).startPosition * 10;
+        if(ownerPowns.length <= playersPowns.length){
+            ownerPowns.forEach(pown => {
+                const index = game.powns.findIndex(pownOrg => pownOrg.id === pown.id);
+                game.powns[index].position = ownerStartPosition;
+                game.powns[index].isStartArea = true;
+                game.board.forEach(cell => {
+                    const pownIndex = cell.indexOf(pown.id);
+                    if(pownIndex >= 0)
+                        cell.splice(pownIndex, pownIndex + 1);
+                });
+                console.log("Pown was kicked out!!!");
+            });
+        }
+    }
+};
+
+// this method park pown at home. Player needs to park 4 pows to finish the game
 const parkPown = (game, pownId) => {
     const index = game.powns.findIndex(pown => pown.id === pownId);
     console.log("+++++++++++++++++++parkPown method++++++++++++++++++++++++");
