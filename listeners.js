@@ -23,7 +23,12 @@ const setConnectionListener = io => {
             console.log("Client disconnected", socket.id);
             // Remove user from game when he disconnected
             controller.handleDisconnectedUser(socket);
-        })
+        });
+
+        // New move event
+        socket.on('new-move', (data) => {
+            controller.handleNewMove(socket, data);
+        });
     });
 
 };
