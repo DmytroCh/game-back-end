@@ -1,13 +1,16 @@
 const express = require('express');
-
+const cors = require('cors');
 
 // App setup
 const app = express();
 
-const hostname = '127.0.0.1';
+const hostname = '0.0.0.0';
 const port = 4000;
+
+app.use(cors());
+
 const server = app.listen(port, hostname, () => {
-    console.log(`Server running at http://${hostname}:${port}/`);
+    console.log(`Server running at ws://${hostname}:${port}/`);
 });
 
 const io = require('./model/socket').init(server);
