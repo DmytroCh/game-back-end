@@ -6,5 +6,6 @@ The main goal of this project is to create Smart TV multiplayer game, that's why
 
 # How to run?
 To run server  you should:
--  have installed node
+- have installed node
+- install required modules: `npm install`
 - execute command in the terminal: `npm start`
