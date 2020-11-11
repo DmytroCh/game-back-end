@@ -10,7 +10,7 @@ app.use(cors());
 
 // web sockets listener
 const server = app.listen(port, hostname, () => {
-    console.log(`Server running at http://${hostname}:${port}/ws/`);
+    console.log(`Server running at http://${hostname}:${port}`);
 });
 
 const io = require('./model/socket').init(server);
